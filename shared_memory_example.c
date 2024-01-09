@@ -1,39 +1,85 @@
-#include <stdio.h>
+#include <iostream>
+#include <malloc.h>
+#include <omp.h>
+using namespace std;
 
-// Function to be integrated
-double f(double x)
-{
-    // Example function: f(x) = x^2
-    return x * x;
-}
-
-// Trapezoidal Rule Function
-double trapezoidalRule(double a, double b, int n)
-{
-    double h = (b - a) / n;
-    double sum = 0.0;
-
-// Parallelize the loop with OpenMP
-#pragma omp parallel for default(none) private(i) shared(a, b, n, h, sum) reduction(+ : sum) schedule(guided)
-    for (int i = 0; i < n; i++)
-    {
-        double x_i = a + i * h;
-        double x_i1 = a + (i + 1) * h;
-        sum += 0.5 * (f(x_i) + f(x_i1)) * h;
-    }
-
-    return sum;
-}
+#define SIZE 400
+#define EDGE_TEMP 100
+#define INTERNAL_INITIAL_TEMP 40
+#define CYCLES 1000
+#define THREADS 8
 
 int main()
 {
-    double lowerLimit = 0;    // Lower limit of integration
-    double upperLimit = 10;   // Upper limit of integration
-    int numTrapezoids = 1000; // Number of trapezoids
+    double max_temp = INTERNAL_INITIAL_TEMP,
+           min_temp = EDGE_TEMP;
 
-    double result = trapezoidalRule(lowerLimit, upperLimit, numTrapezoids);
+    double **plate = new double *[SIZE];
+    double **temp_plate = new double *[SIZE];
 
-    printf("Approximate integral of f(x) from %lf to %lf = %lf\n", lowerLimit, upperLimit, result);
+    for (int i = 0; i < SIZE; ++i)
+    {
+        plate[i] = new double[SIZE];
+        temp_plate[i] = new double[SIZE];
+    }
+
+    for (int i = 0; i < SIZE; i++)
+    {
+        for (int j = 0; j < SIZE; j++)
+        {
+            if (i == 0 || i == SIZE - 1 || j == 0 || j == SIZE - 1)
+                plate[i][j] = EDGE_TEMP;
+            else
+                plate[i][j] = INTERNAL_INITIAL_TEMP;
+        }
+    }
+
+    double start = omp_get_wtime();
+
+    for (int iter = 0; iter < CYCLES; iter++)
+    {
+#pragma omp parallel for num_threads(THREADS)
+        for (int i = 1; i < SIZE - 1; i++)
+        {
+            for (int j = 1; j < SIZE - 1; j++)
+            {
+                temp_plate[i][j] = 0.25 * (plate[i - 1][j] + plate[i + 1][j] + plate[i][j - 1] + plate[i][j + 1]);
+            }
+        }
+        for (int i = 1; i < SIZE - 1; i++)
+        {
+            for (int j = 1; j < SIZE - 1; j++)
+            {
+                plate[i][j] = temp_plate[i][j];
+            }
+        }
+    }
+
+    double end = omp_get_wtime();
+
+    for (int i = 1; i < SIZE - 1; i++)
+    {
+        for (int j = 1; j < SIZE - 1; j++)
+        {
+            if (plate[i][j] > max_temp)
+                max_temp = plate[i][j];
+            if (plate[i][j] < min_temp)
+                min_temp = plate[i][j];
+        }
+    }
+
+    cout << "Number of threads = " << THREADS << "\n";
+    cout << "The minimum temperature in the plate is " << min_temp << "\n";
+    cout << "The maximum temperature in the plate is " << max_temp << "\n";
+    cout << "Time Elapsed = " << end - start << "\n";
+
+    for (int i = 0; i < SIZE; ++i)
+    {
+        delete[] plate[i];
+        delete[] temp_plate[i];
+    }
+    delete[] plate;
+    delete[] temp_plate;
 
     return 0;
 }
